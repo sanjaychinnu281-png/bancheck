@@ -1,0 +1,9 @@
+{
+  "name": "ff-full-info-api",
+  "version": "1.0.0",
+  "description": "Free Fire Ban Check & Full Info API",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "@pure0cd/freefire-api": "^7.1.5"
+  }
+}
