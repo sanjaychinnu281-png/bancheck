@@ -1,17 +1,12 @@
 const axios = require('axios');
-const FreeFireAPI = require('@pure0cd/freefire-api');
 
 module.exports = async (req, res) => {
-    // CORS allow
     res.setHeader('Access-Control-Allow-Origin', '*');
     
     const { uid } = req.query;
 
     if (!uid) {
-        return res.status(400).json({ 
-            status: false, 
-            message: "UID required. Example: ?uid=17848065004" 
-        });
+        return res.status(400).json({ status: false, message: "UID required. Example: ?uid=12345678" });
     }
 
     let result = {
@@ -19,66 +14,74 @@ module.exports = async (req, res) => {
         uid: uid,
         is_banned: false,
         ban_message: "Not Banned ✅",
-        player_info: null,
+        player_info: {
+            nickname: "N/A",
+            level: "N/A",
+            likes: "N/A",
+            region: "N/A"
+        },
         error: null
     };
 
-    // --- 1. BAN CHECK (Garena Official Endpoint) ---
+    // --- 1. BAN CHECK (Official Garena Endpoint) ---
     try {
         const banUrl = `https://ff.garena.com/api/antihack/check_banned?uid=${uid}`;
         const banRes = await axios.get(banUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                 'Accept': 'application/json',
                 'Referer': 'https://ff.garena.com/'
             }
         });
 
         if (banRes.data && banRes.data.data) {
-            const isBanned = banRes.data.data.is_banned === 1;
-            result.is_banned = isBanned;
-            result.ban_message = isBanned ? "Player is Banned ❌" : "Not Banned ✅";
-            // अगर Garena से निकनेम मिल जाए तो सेव कर लें
+            result.is_banned = banRes.data.data.is_banned === 1;
+            result.ban_message = result.is_banned ? "Player is Banned ❌" : "Not Banned ✅";
             if (banRes.data.data.nickname) {
-                result.player_info = result.player_info || {};
                 result.player_info.nickname = banRes.data.data.nickname;
             }
         }
     } catch (err) {
-        result.error = "Ban check failed: " + err.message;
+        result.error = "Ban check failed.";
     }
 
-    // --- 2. FULL PLAYER INFO (Library) ---
+    // --- 2. PLAYER INFO (Public Community API) ---
     try {
-        const api = new FreeFireAPI();
-        // Auto-login with default credentials
-        await api.login(); 
+        // Ye ek open-source API hai jo Vercel se block nahi hoti
+        const infoUrl = `https://info-free-fire-api.vercel.app/info?uid=${uid}`;
+        const infoRes = await axios.get(infoUrl);
 
-        // प्रोफाइल निकालें (इसमें level, likes, region आदि आते हैं)
-        const profile = await api.getPlayerProfile(uid);
-        
-        // लाइब्रेरी का रिस्पॉन्स स्ट्रक्चर अलग हो सकता है, इसलिए सेफ तरीके से एक्सेस करें
-        // आमतौर पर डेटा basicinfo या सीधे ऑब्जेक्ट में होता है
-        const info = profile.basicinfo || profile.basicInfo || profile;
-        
-        result.player_info = {
-            nickname: info.nickname || (result.player_info ? result.player_info.nickname : "Unknown"),
-            level: info.level || "N/A",
-            likes: info.liked || info.likes || "N/A",
-            region: info.region || "N/A",
-            // अगर और भी फील्ड चाहिए तो यहाँ जोड़ सकते हैं
-            // exp: info.exp,
-            // create_at: info.createat
-        };
+        if (infoRes.data && infoRes.data.status === "success") {
+            const info = infoRes.data.data;
+            result.player_info = {
+                nickname: info.nickname || result.player_info.nickname,
+                level: info.level || "N/A",
+                likes: info.likes || "N/A",
+                region: info.region || "N/A"
+            };
+        } else {
+             // Agar yahan bhi fail ho, toh backup library try karein
+             throw new Error("Primary info API failed");
+        }
 
     } catch (err) {
-        // अगर लाइब्रेरी फेल हो जाए तो कम से कम बैन वाला डेटा तो रहे
-        if (!result.player_info) {
-            result.player_info = { nickname: "Unknown (Info fetch failed)" };
+        // Backup option: Try using a different free API if the first one fails
+        try {
+            const backupUrl = `https://ff-api-psi.vercel.app/info?uid=${uid}`;
+            const backupRes = await axios.get(backupUrl);
+            
+            if(backupRes.data && backupRes.data.nickname) {
+                 result.player_info = {
+                    nickname: backupRes.data.nickname,
+                    level: backupRes.data.level || "N/A",
+                    likes: backupRes.data.likes || "N/A",
+                    region: backupRes.data.region || "N/A"
+                };
+            }
+        } catch (backupErr) {
+            result.error = "Player Info fetch failed. Garena API is restricted.";
         }
-        result.error = (result.error ? result.error + " | " : "") + "Info fetch failed: " + err.message;
     }
 
-    // रिजल्ट भेजें
     return res.status(200).json(result);
 };
