@@ -1,10 +1,8 @@
 {
   "name": "ff-status-api",
   "version": "1.0.0",
-  "description": "Free Fire Full Info and Ban Status",
   "dependencies": {
     "axios": "^1.6.2",
-    "@pure0cd/freefire-api": "^7.1.5",
-    "shan-ffapi": "^1.0.0"
+    "https-proxy-agent": "^7.0.2"
   }
 }
