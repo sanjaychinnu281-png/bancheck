@@ -3,83 +3,81 @@ const axios = require('axios');
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     
-    const { uid } = req.query;
+    // अब URL में UID के साथ region भी डाल सकते हैं (जैसे: ?uid=123&region=BD)
+    const { uid, region = 'ind' } = req.query;
 
     if (!uid) {
-        return res.status(400).json({ status: false, message: "UID required. Example: ?uid=12345678" });
+        return res.status(400).json({ status: false, message: "UID required." });
     }
 
     let result = {
         status: "success",
         uid: uid,
+        region: region.toUpperCase(),
         is_banned: false,
         ban_message: "Not Banned ✅",
         player_info: {
             nickname: "N/A",
             level: "N/A",
             likes: "N/A",
-            region: "N/A"
+            region: region.toUpperCase()
         },
         error: null
     };
 
-    // --- 1. BAN CHECK (Official Garena Endpoint) ---
+    // --- 1. BAN CHECK (Garena Official - Ye sabhi regions ke liye kaam karta hai) ---
     try {
-        const banUrl = `https://ff.garena.com/api/antihack/check_banned?uid=${uid}`;
+        const banUrl = `https://ff.garena.com/api/antihack/check_banned?uid=${uid}&region=${region}`;
         const banRes = await axios.get(banUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'Accept': 'application/json',
-                'Referer': 'https://ff.garena.com/'
-            }
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://ff.garena.com/' }
         });
-
         if (banRes.data && banRes.data.data) {
             result.is_banned = banRes.data.data.is_banned === 1;
             result.ban_message = result.is_banned ? "Player is Banned ❌" : "Not Banned ✅";
-            if (banRes.data.data.nickname) {
-                result.player_info.nickname = banRes.data.data.nickname;
-            }
+            if (banRes.data.data.nickname) result.player_info.nickname = banRes.data.data.nickname;
         }
     } catch (err) {
         result.error = "Ban check failed.";
     }
 
-    // --- 2. PLAYER INFO (Public Community API) ---
+    // --- 2. PLAYER INFO (Multi-Region Support) ---
     try {
-        // Ye ek open-source API hai jo Vercel se block nahi hoti
-        const infoUrl = `https://info-free-fire-api.vercel.app/info?uid=${uid}`;
-        const infoRes = await axios.get(infoUrl);
+        // Ye API aapke diye gaye region (IND, BD, PK, etc.) ke hisaab se data laayegi
+        const infoUrl = `https://api.ff.garena.com/player/${uid}/profile?region=${region.toUpperCase()}`;
+        
+        const infoRes = await axios.get(infoUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0',
+                // Yahan ek dummy API key ya basic auth lagana pad sakta hai agar public na ho
+                'Accept': 'application/json'
+            }
+        });
 
-        if (infoRes.data && infoRes.data.status === "success") {
-            const info = infoRes.data.data;
+        if (infoRes.data && infoRes.data.basicInfo) {
+            const info = infoRes.data.basicInfo;
             result.player_info = {
                 nickname: info.nickname || result.player_info.nickname,
                 level: info.level || "N/A",
-                likes: info.likes || "N/A",
-                region: info.region || "N/A"
+                likes: info.liked || "N/A",
+                region: info.region || region.toUpperCase()
             };
-        } else {
-             // Agar yahan bhi fail ho, toh backup library try karein
-             throw new Error("Primary info API failed");
         }
-
     } catch (err) {
-        // Backup option: Try using a different free API if the first one fails
+        // Agar upar wala fail ho, toh fallback library try karein jo multi-region support karti hai
         try {
-            const backupUrl = `https://ff-api-psi.vercel.app/info?uid=${uid}`;
-            const backupRes = await axios.get(backupUrl);
+            // Fallback: Shan-ffapi library (Ye multi-region support karti hai)
+            const { FreeFireAPI } = require('shan-ffapi');
+            const api = new FreeFireAPI();
+            const profile = await api.getPlayerProfile(uid, region.toUpperCase());
             
-            if(backupRes.data && backupRes.data.nickname) {
-                 result.player_info = {
-                    nickname: backupRes.data.nickname,
-                    level: backupRes.data.level || "N/A",
-                    likes: backupRes.data.likes || "N/A",
-                    region: backupRes.data.region || "N/A"
-                };
-            }
-        } catch (backupErr) {
-            result.error = "Player Info fetch failed. Garena API is restricted.";
+            result.player_info = {
+                nickname: profile.basicinfo.nickname || "N/A",
+                level: profile.basicinfo.level || "N/A",
+                likes: profile.basicinfo.liked || "N/A",
+                region: profile.basicinfo.region || region.toUpperCase()
+            };
+        } catch (fallbackErr) {
+            result.error = "Info fetch failed. Please check the region code.";
         }
     }
 
