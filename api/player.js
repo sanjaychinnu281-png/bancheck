@@ -20,43 +20,48 @@ module.exports = async (req, res) => {
         error: null
     };
 
-    // Free Indian Proxy (Agar ye kaam na kare to dusra lagana padega)
-    const proxyAgent = new HttpsProxyAgent('http://103.152.112.162:80'); 
+    // यह प्रॉक्सी हमारी रिक्वेस्ट को इंडियन IP से भेजेगी (ताकि Garena ब्लॉक न करे)
+    const proxyAgent = new HttpsProxyAgent('http://165.227.108.194:80'); 
 
+    // --- 1. असली बैन चेक (Proxy के जरिए) ---
     try {
-        // 1. Ban Check via Proxy
         const banUrl = `https://ff.garena.com/api/antihack/check_banned?uid=${uid}`;
-        const banRes = await axios.get(banUrl, {
-            httpsAgent: proxyAgent,
-            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://ff.garena.com/' }
-        });
         
+        const banRes = await axios.get(banUrl, {
+            httpsAgent: proxyAgent, // प्रॉक्सी का इस्तेमाल
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Referer': 'https://ff.garena.com/' 
+            }
+        });
+
         if (banRes.data && banRes.data.data) {
             result.is_banned = banRes.data.data.is_banned === 1;
             result.ban_message = result.is_banned ? "Player is Banned ❌" : "Not Banned ✅";
-            if (banRes.data.data.nickname) result.player_info.nickname = banRes.data.data.nickname;
+            if (banRes.data.data.nickname) {
+                result.player_info.nickname = banRes.data.data.nickname;
+            }
         }
     } catch (err) {
-        result.error = "Ban check failed (Proxy issue).";
+        result.error = "Ban check failed. Proxy might be down.";
     }
 
-    // 2. Player Info via Proxy
+    // --- 2. प्लेयर इन्फो (आपकी दी हुई API से) ---
     try {
-        const infoUrl = `https://freefireinfo.vercel.app/api/info?uid=${uid}&region=${region}`;
-        const infoRes = await axios.get(infoUrl, {
-            httpsAgent: proxyAgent
-        });
+        const infoUrl = `https://free-fire-info-ob55.vercel.app/player-info?uid=${uid}`;
+        const infoRes = await axios.get(infoUrl, { httpsAgent: proxyAgent });
 
-        if (infoRes.data && infoRes.data.success) {
+        if (infoRes.data) {
+            const info = infoRes.data;
             result.player_info = {
-                nickname: infoRes.data.data.nickname || result.player_info.nickname,
-                level: infoRes.data.data.level || "N/A",
-                likes: infoRes.data.data.likes || "N/A",
-                region: infoRes.data.data.region || region.toUpperCase()
+                nickname: info.nickname || info.name || result.player_info.nickname,
+                level: info.level || "N/A",
+                likes: info.likes || info.liked || "N/A",
+                region: info.region || region.toUpperCase()
             };
         }
     } catch (err) {
-        result.error = (result.error ? result.error + " | " : "") + "Info failed.";
+        // अगर इन्फो फेल हो जाए तो कोई बात नहीं, बैन चेक तो काम करेगा
     }
 
     return res.status(200).json(result);
